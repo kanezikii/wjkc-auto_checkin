@@ -1,0 +1,56 @@
+name: WJKC Auto Checkin (Unified)
+
+on:
+  workflow_dispatch: # 允许手动触发
+  schedule:
+    - cron: '0 0 * * *' # 每天 UTC 时间 00:00 运行 (北京时间 08:00)
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    outputs:
+      notification_result: ${{ steps.checkin.outputs.result }}
+      should_notify: ${{ steps.checkin.outputs.should_notify }}
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install --no-cache-dir -r requirements.txt
+
+    - name: Run Auto Checkin with Smart Token Management
+      id: checkin
+      env:
+        WJKC_CREDENTIALS: ${{ secrets.WJKC_CREDENTIALS }}
+        WJKC_TOKENS: ${{ secrets.WJKC_TOKENS }}
+        TOKEN_LAST_UPDATE: ${{ secrets.TOKEN_LAST_UPDATE }}
+        LAST_NOTIFICATION_DATE: ${{ secrets.LAST_NOTIFICATION_DATE }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      run: python auto_checkin.py
+
+    - name: Send Telegram Notification
+      if: ${{ steps.checkin.outputs.should_notify == 'true' && secrets.TELEGRAM_TOKEN && secrets.TELEGRAM_TO }}
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ secrets.TELEGRAM_TO }}
+        token: ${{ secrets.TELEGRAM_TOKEN }}
+        format: markdown
+        message: |
+          🔔 *WJKC.LOL 自动签到报告*
+          
+          ${{ steps.checkin.outputs.result }}
+          
+          📅 执行时间: ${{ steps.checkin.outputs.execution_time }}
+          🔗 [查看任务详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          
+          ---
+          _自动签到系统 v2.0_

@@ -1,4 +1,4 @@
-# auto_checkin.py (Final and Correct Multi-Account Version using Cookies)
+# auto_checkin.py (Enhanced Version with Smart Token Management and Deduplication)
 import os
 import requests
 import json
@@ -11,15 +11,42 @@ from update_github_secret import update_github_repo_secret
 CHECKIN_URL = "https://wjkc.lol/api/user/sign_use"
 USER_INFO_URL = "https://wjkc.lol/api/user/userinfo"
 
-# --- Telegram Bot (Optional) ---
-def send_telegram_message(messages, bot_token, chat_id):
-    if not bot_token or not chat_id or not messages: return
-    header = f"<b>wjkc.lol 签到通知</b> ({len(messages)}个账户)"
-    full_message = header + "\n" + "\n".join(messages)
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": full_message, "parse_mode": "HTML"}
-    try: requests.post(url, data=payload)
-    except Exception as e: print(f"[Telegram Error] {e}")
+# --- Smart Token Management ---
+def check_token_needs_update():
+    """检查token是否需要更新（15天周期）"""
+    last_update = os.getenv('TOKEN_LAST_UPDATE')
+    if not last_update:
+        print("未找到TOKEN_LAST_UPDATE，需要更新token")
+        return True
+
+    try:
+        last_update_date = datetime.fromisoformat(last_update)
+        days_since_update = (datetime.now() - last_update_date).days
+        print(f"距离上次token更新已过去 {days_since_update} 天")
+        return days_since_update >= 15
+    except ValueError:
+        print("TOKEN_LAST_UPDATE格式无效，需要更新token")
+        return True
+
+def should_send_notification():
+    """检查今日是否需要发送通知（去重机制）"""
+    last_notification = os.getenv('LAST_NOTIFICATION_DATE')
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    if last_notification == today:
+        print(f"今日({today})已发送过通知，跳过")
+        return False
+
+    print(f"今日({today})尚未发送通知，将发送")
+    return True
+
+def set_github_output(name, value):
+    """设置GitHub Actions输出变量"""
+    github_output = os.getenv('GITHUB_OUTPUT')
+    if github_output:
+        with open(github_output, 'a', encoding='utf-8') as f:
+            f.write(f"{name}={value}\n")
+    print(f"设置输出变量: {name}={value}")
 
 # --- 主函数 (处理单个Token) ---
 def run_checkin_for_token(token_name, wjkc_token):
@@ -38,24 +65,41 @@ def run_checkin_for_token(token_name, wjkc_token):
         if message == "SUCCESS":
             reward_mb = checkin_result.get('data', {}).get('addTraffic', 0) / (1024*1024)
             status_text = f"✅ 签到成功！获得 {reward_mb:.2f}MB"
+            status_emoji = "✅"
         else:
             status_text = f"🟡 无需签到 (已签到)"
+            status_emoji = "🟡"
         print(f"  > 签到状态: {status_text}")
-        
+
         # Step 2: Get User Info
         userinfo_response = session.post(USER_INFO_URL, json={"data": "e30="})
         userinfo_result = json.loads(base64.b64decode(userinfo_response.json().get('data')))
         if userinfo_result.get('msg') != 'SUCCESS': raise ValueError("Token无效或已过期，无法查询信息。")
-        
+
         email = userinfo_result.get('data', {}).get('email', token_name)
         traffic_gb = userinfo_result.get('data', {}).get('traffic', 0) / (1024*1024*1024)
-        
-        return f"<b>账户:</b> {email}\n<b>状态:</b> {status_text}\n<b>剩余流量:</b> {traffic_gb:.2f}GB\n{'-'*20}"
+
+        # 返回格式化的结果，包含更多信息
+        return {
+            'email': email,
+            'status': status_text,
+            'status_emoji': status_emoji,
+            'traffic_gb': traffic_gb,
+            'reward_mb': reward_mb if message == "SUCCESS" else 0,
+            'success': True
+        }
 
     except Exception as e:
-        error_message = f"<b>令牌:</b> {token_name}\n<b>状态:</b> ❌ 任务失败\n<b>错误:</b> {e}\n{'-'*20}"
         print(f"  > 发生错误: {e}")
-        return error_message
+        return {
+            'email': token_name,
+            'status': f"❌ 任务失败: {str(e)}",
+            'status_emoji': "❌",
+            'traffic_gb': 0,
+            'reward_mb': 0,
+            'success': False,
+            'error': str(e)
+        }
 
 # --- 脚本入口 ---
 def load_tokens_from_env():
@@ -66,89 +110,122 @@ def load_tokens_from_env():
     return {}
 
 def main():
+    print("=== WJKC 自动签到系统 v2.0 启动 ===")
+    execution_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+
     github_repo = os.getenv('GITHUB_REPOSITORY')
     github_token = os.getenv('GH_TOKEN')
-    
-    # 从环境变量加载多账户凭据
-    credentials_str = os.getenv('WJKC_CREDENTIALS')
-    accounts_to_update = {} # 存储需要更新 token 的账户及其新 token
-    
-    if credentials_str and github_repo and github_token:
-        try:
-            credentials = json.loads(credentials_str)
-            print(f"找到 {len(credentials)} 个账户凭据。尝试获取新的 WJKC Token...")
-            
-            for i, cred in enumerate(credentials):
-                account_name = cred.get('name', f"Account_{i+1}")
-                username = cred.get('username')
-                password = cred.get('password')
 
-                if username and password:
-                    new_token = get_wjkc_token(account_name, username, password)
-                    if new_token:
-                        accounts_to_update[account_name] = new_token
+    # 检查是否需要发送通知（去重机制）
+    should_notify = should_send_notification()
+    set_github_output('should_notify', 'true' if should_notify else 'false')
+    set_github_output('execution_time', execution_time)
+
+    # 智能Token管理：检查是否需要更新token
+    need_token_update = check_token_needs_update()
+    accounts_to_update = {}
+
+    if need_token_update:
+        print("🔄 Token需要更新，尝试通过登录获取新token...")
+        credentials_str = os.getenv('WJKC_CREDENTIALS')
+
+        if credentials_str and github_repo and github_token:
+            try:
+                credentials = json.loads(credentials_str)
+                print(f"找到 {len(credentials)} 个账户凭据")
+
+                for i, cred in enumerate(credentials):
+                    account_name = cred.get('name', f"Account_{i+1}")
+                    username = cred.get('username')
+                    password = cred.get('password')
+
+                    if username and password:
+                        new_token = get_wjkc_token(account_name, username, password)
+                        if new_token:
+                            accounts_to_update[account_name] = new_token
+                            print(f"✅ 成功获取账户 '{account_name}' 的新token")
+                        else:
+                            print(f"❌ 未能获取账户 '{account_name}' 的新token")
                     else:
-                        print(f"未能通过登录获取账户 '{account_name}' 的新 Token。")
-                else:
-                    print(f"账户 '{account_name}' 缺少用户名或密码，跳过。")
-            
-            if accounts_to_update:
-                # 将所有新获取的 token 组合成一个字符串，更新 WJKC_TOKENS 机密
-                # 这里假设 WJKC_TOKENS 存储的是所有账户的 token，以逗号分隔
-                # 如果 WJKC_TOKENS 已经存在，我们应该尝试合并而不是完全覆盖
-                # 但为了简化，这里直接用新获取的 token 列表覆盖
-                # 实际应用中可能需要更复杂的合并逻辑
-                updated_tokens_list = list(accounts_to_update.values())
-                updated_tokens_str = ",".join(updated_tokens_list)
+                        print(f"⚠️ 账户 '{account_name}' 缺少凭据，跳过")
 
-                print("尝试更新 GitHub 仓库机密 WJKC_TOKENS...")
-                update_success = update_github_repo_secret(
-                    github_repo,
-                    "WJKC_TOKENS",
-                    updated_tokens_str,
-                    github_token
-                )
-                if update_success:
-                    print("GitHub 仓库机密 WJKC_TOKENS 更新成功。")
-                else:
-                    print("GitHub 仓库机密 WJKC_TOKENS 更新失败。")
-            else:
-                print("未能获取任何账户的新 WJKC Token。")
+                if accounts_to_update:
+                    # 更新WJKC_TOKENS
+                    updated_tokens_str = ",".join(accounts_to_update.values())
+                    update_success = update_github_repo_secret(
+                        github_repo, "WJKC_TOKENS", updated_tokens_str, github_token
+                    )
 
-        except json.JSONDecodeError:
-            print("❌ [错误] WJKC_CREDENTIALS 环境变量不是有效的 JSON 格式。")
-        except Exception as e:
-            print(f"处理多账户凭据时发生错误: {e}")
+                    if update_success:
+                        # 更新token更新时间
+                        current_time = datetime.now().isoformat()
+                        update_github_repo_secret(
+                            github_repo, "TOKEN_LAST_UPDATE", current_time, github_token
+                        )
+                        print("✅ Token和更新时间已成功更新到GitHub Secrets")
+                    else:
+                        print("❌ Token更新失败")
+
+            except json.JSONDecodeError:
+                print("❌ WJKC_CREDENTIALS 格式错误")
+            except Exception as e:
+                print(f"❌ 处理凭据时发生错误: {e}")
+        else:
+            print("⚠️ 缺少必要的环境变量，跳过token更新")
     else:
-        print("未提供 WJKC_CREDENTIALS, GITHUB_REPOSITORY 或 GH_TOKEN 环境变量，跳过登录获取 Token 流程。")
+        print("✅ Token仍在有效期内，无需更新")
 
-    # 加载现有的 token (可能包含手动设置的或之前更新的)
+    # 加载现有的token并执行签到
     all_tokens = load_tokens_from_env()
-    
-    # 如果有通过登录获取到的新 token，将其添加到签到列表中 (如果不存在)
+
+    # 如果有新获取的token，优先使用
     for name, new_token in accounts_to_update.items():
-        # 检查是否已经存在同名的 token，或者 token 值是否已经存在
-        # 这里简化处理，直接用新获取的 token 覆盖或添加
         all_tokens[name] = new_token
 
     if not all_tokens:
-        print("❌ [错误] 未在GitHub Secrets中找到名为 WJKC_TOKENS 的密钥，且未能通过登录获取新 Token。")
-    else:
-        print(f"✅ 找到 {len(all_tokens)} 个账户Token。开始执行签到任务...")
-        results_for_telegram = []
-        for name, value in all_tokens.items():
-            result = run_checkin_for_token(name, value)
-            results_for_telegram.append(result)
-            print("-" * 40)
-        
-        bot_token = os.getenv('BOT_TOKEN')
-        chat_id = os.getenv('CHAT_ID')
-        send_telegram_message(results_for_telegram, bot_token, chat_id)
+        error_msg = "❌ 未找到任何可用的token"
+        print(error_msg)
+        set_github_output('result', error_msg)
+        return
 
-    print("所有任务已完成。")
+    print(f"🚀 开始为 {len(all_tokens)} 个账户执行签到任务...")
+    results = []
+    success_count = 0
+    total_reward = 0
 
-if __name__ == "__main__":
-    main()
+    for name, token in all_tokens.items():
+        print(f"\n--- 处理账户: {name} ---")
+        result = run_checkin_for_token(name, token)
+        results.append(result)
+
+        if result['success']:
+            success_count += 1
+            total_reward += result['reward_mb']
+
+    # 格式化通知消息
+    notification_lines = []
+    notification_lines.append(f"📊 **签到统计**: {success_count}/{len(all_tokens)} 成功")
+    notification_lines.append(f"🎁 **总奖励**: {total_reward:.2f}MB")
+    notification_lines.append("")
+
+    for result in results:
+        notification_lines.append(f"{result['status_emoji']} **{result['email']}**")
+        notification_lines.append(f"   状态: {result['status']}")
+        notification_lines.append(f"   流量: {result['traffic_gb']:.2f}GB")
+        if result['reward_mb'] > 0:
+            notification_lines.append(f"   奖励: +{result['reward_mb']:.2f}MB")
+        notification_lines.append("")
+
+    notification_message = "\n".join(notification_lines)
+    set_github_output('result', notification_message)
+
+    # 更新通知日期（如果需要发送通知）
+    if should_notify and github_repo and github_token:
+        today = datetime.now().strftime('%Y-%m-%d')
+        update_github_repo_secret(github_repo, "LAST_NOTIFICATION_DATE", today, github_token)
+        print(f"✅ 已更新通知日期: {today}")
+
+    print("\n=== 所有任务已完成 ===")
 
 if __name__ == "__main__":
     main()
