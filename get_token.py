@@ -7,7 +7,8 @@ import hashlib
 def get_wjkc_token(account_name, username, password):
     print(f"--- 正在尝试登录账户: {account_name} ---")
     
-    LOGIN_URL = "https://wjkc.com/api/user/login"
+    # 👇 核心修复 1：更新为正确的可用域名 wj-kc.com
+    LOGIN_URL = "https://wj-kc.com/api/user/login"
     
     # 对密码进行 MD5 哈希
     md5_password = hashlib.md5(password.encode('utf-8')).hexdigest()
@@ -26,8 +27,9 @@ def get_wjkc_token(account_name, username, password):
         "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
         "Connection": "keep-alive",
         "Content-Type": "application/json",
-        "Origin": "https://wjkc.com",
-        "Referer": "https://wjkc.com/",
+        # 👇 核心修复 2：更新请求头中的 Origin 和 Referer 为正确的域名
+        "Origin": "https://wj-kc.com",
+        "Referer": "https://wj-kc.com/",
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-origin",
@@ -51,27 +53,27 @@ def get_wjkc_token(account_name, username, password):
                 # 登录成功，从 cookies 中获取 token
                 wjkc_token = response.cookies.get('token')
                 if wjkc_token:
-                    print(f"成功获取到 token: {wjkc_token}")
+                    print(f"✅ 成功获取到 token: {wjkc_token}")
                     return wjkc_token
                 else:
-                    print("登录成功但未找到 token cookie。")
+                    print("❌ 登录成功但未找到 token cookie。")
                     return None
             else:
                 error_msg = decoded_response_data.get('msg', '未知错误')
-                print(f"登录失败: {error_msg}")
+                print(f"❌ 登录失败: {error_msg}")
                 return None
         else:
-            print(f"登录响应中未找到 'data' 字段: {response_json}")
+            print(f"❌ 登录响应中未找到 'data' 字段: {response_json}")
             return None
 
     except requests.exceptions.RequestException as e:
-        print(f"获取 token 过程中发生网络或HTTP错误: {e}")
+        print(f"❌ 获取 token 过程中发生网络或HTTP错误: {e}")
         return None
     except json.JSONDecodeError:
-        print(f"获取 token 过程中发生 JSON 解析错误: {response.text}")
+        print(f"❌ 获取 token 过程中发生 JSON 解析错误: {response.text}")
         return None
     except Exception as e:
-        print(f"获取 token 过程中发生未知错误: {e}")
+        print(f"❌ 获取 token 过程中发生未知错误: {e}")
         return None
 
 if __name__ == "__main__":
