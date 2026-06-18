@@ -1,9 +1,9 @@
-# auto_checkin.py (Enhanced Version with Smart Token Management and Deduplication)
+# auto_checkin.py (Final Version with Perfect Traffic Parsing)
 import os
 import requests
 import json
 import base64
-import uuid  # 新增：用于生成随机的 GitHub Actions EOF 界定符
+import uuid
 from datetime import datetime, timedelta
 from get_token import get_wjkc_token
 from update_github_secret import update_github_repo_secret
@@ -46,7 +46,6 @@ def set_github_output(name, value):
     github_output = os.getenv('GITHUB_OUTPUT')
     if github_output:
         with open(github_output, 'a', encoding='utf-8') as f:
-            # 使用随机字符串作为 EOF 界定符，完美解决多行输出报错问题
             delimiter = str(uuid.uuid4())
             f.write(f"{name}<<{delimiter}\n")
             f.write(f"{value}\n")
@@ -84,35 +83,24 @@ def run_checkin_for_token(token_name, wjkc_token):
         user_data = userinfo_result.get('data', {})
         email = user_data.get('email', token_name)
 
-        # === 流量计算修正逻辑 ===
-        total_traffic = user_data.get('traffic', 0)
+        # === 流量计算终极逻辑 ===
+        # 1. 优先提取 subSummary 中的 remainingBytes
+        sub_summary = user_data.get('subSummary', {})
+        permanent_info = sub_summary.get('permanent', {})
         
-        # ✨ 核心修改：打印完整的接口数据，寻找真实的 6.32G 字段
-        print(f"  > [Debug] 完整接口返回数据: {user_data}")
-
-        used_traffic = user_data.get('used', 0) # 有些面板已用流量叫 used
-        u_traffic = user_data.get('u', 0)       # 有些面板用 u 代表上传
-        d_traffic = user_data.get('d', 0)       # d 代表下载
-
-        # 尝试计算真实剩余流量
-        # 1. 如果接口有直白的 remain 字段
-        if 'remain' in user_data:
-            remaining_bytes = user_data['remain']
-        # 2. 如果有明确的 used 字段
-        elif used_traffic > 0:
-            remaining_bytes = total_traffic - used_traffic
-        # 3. 如果使用经典的 u (上传) 和 d (下载) 字段
-        elif (u_traffic > 0 or d_traffic > 0):
-            remaining_bytes = total_traffic - (u_traffic + d_traffic)
-        # 4. 兜底策略 (临时使用总流量，等拿到 Debug 数据后替换为最终公式)
+        if 'remainingBytes' in permanent_info:
+            remaining_bytes = permanent_info['remainingBytes']
+        # 2. 备用方案：traffic (总流量) - spendTraffic (已用流量)
+        elif 'spendTraffic' in user_data:
+            remaining_bytes = user_data.get('traffic', 0) - user_data.get('spendTraffic', 0)
         else:
-            remaining_bytes = total_traffic
+            remaining_bytes = 0
             
         # 防止计算出现负数异常
-        if remaining_bytes < 0:
-            remaining_bytes = 0
+        remaining_bytes = max(0, remaining_bytes)
 
-        traffic_gb = remaining_bytes / (1024*1024*1024)
+        # 换算为 GB
+        traffic_gb = remaining_bytes / (1024**3)
 
         # 返回格式化的结果，包含更多信息
         return {
@@ -140,23 +128,20 @@ def run_checkin_for_token(token_name, wjkc_token):
 def load_tokens_from_env():
     tokens_str = os.getenv('WJKC_TOKENS')
     if tokens_str:
-        # 过滤掉因为额外逗号等产生的空字符串
         return {f"Token_{i+1}": token.strip() for i, token in enumerate(tokens_str.split(',')) if token.strip()}
     return {}
 
 def main():
-    print("=== WJKC 自动签到系统 v2.0 启动 ===")
+    print("=== WJKC 自动签到系统 终极版 启动 ===")
     execution_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
 
     github_repo = os.getenv('GITHUB_REPOSITORY')
     github_token = os.getenv('GH_TOKEN')
 
-    # 检查是否需要发送通知（去重机制）
     should_notify = should_send_notification()
     set_github_output('should_notify', 'true' if should_notify else 'false')
     set_github_output('execution_time', execution_time)
 
-    # 智能Token管理：检查是否需要更新token
     need_token_update = check_token_needs_update()
     accounts_to_update = {}
 
@@ -185,14 +170,12 @@ def main():
                         print(f"⚠️ 账户 '{account_name}' 缺少凭据，跳过")
 
                 if accounts_to_update:
-                    # 更新WJKC_TOKENS
                     updated_tokens_str = ",".join(accounts_to_update.values())
                     update_success = update_github_repo_secret(
                         github_repo, "WJKC_TOKENS", updated_tokens_str, github_token
                     )
 
                     if update_success:
-                        # 更新token更新时间
                         current_time = datetime.now().isoformat()
                         update_github_repo_secret(
                             github_repo, "TOKEN_LAST_UPDATE", current_time, github_token
@@ -210,10 +193,8 @@ def main():
     else:
         print("✅ Token仍在有效期内，无需更新")
 
-    # 加载现有的token并执行签到
     all_tokens = load_tokens_from_env()
 
-    # 如果有新获取的token，优先使用
     for name, new_token in accounts_to_update.items():
         all_tokens[name] = new_token
 
@@ -246,15 +227,14 @@ def main():
     for result in results:
         notification_lines.append(f"{result['status_emoji']} **{result['email']}**")
         notification_lines.append(f"   状态: {result['status']}")
-        notification_lines.append(f"   流量: {result['traffic_gb']:.2f}GB")
+        notification_lines.append(f"   剩余流量: {result['traffic_gb']:.2f} GB")  # 文案更新为剩余流量
         if result['reward_mb'] > 0:
-            notification_lines.append(f"   奖励: +{result['reward_mb']:.2f}MB")
+            notification_lines.append(f"   奖励: +{result['reward_mb']:.2f} MB")
         notification_lines.append("")
 
     notification_message = "\n".join(notification_lines)
     set_github_output('result', notification_message)
 
-    # 更新通知日期（如果需要发送通知）
     if should_notify and github_repo and github_token:
         today = datetime.now().strftime('%Y-%m-%d')
         update_github_repo_secret(github_repo, "LAST_NOTIFICATION_DATE", today, github_token)
