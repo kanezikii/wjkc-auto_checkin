@@ -85,13 +85,14 @@ def run_checkin_for_token(token_name, wjkc_token):
         email = user_data.get('email', token_name)
 
         # === 流量计算修正逻辑 ===
-        # 提取关键流量数据打印到日志中，方便 Debug
         total_traffic = user_data.get('traffic', 0)
+        
+        # ✨ 核心修改：打印完整的接口数据，寻找真实的 6.32G 字段
+        print(f"  > [Debug] 完整接口返回数据: {user_data}")
+
         used_traffic = user_data.get('used', 0) # 有些面板已用流量叫 used
         u_traffic = user_data.get('u', 0)       # 有些面板用 u 代表上传
         d_traffic = user_data.get('d', 0)       # d 代表下载
-        
-        print(f"  > [Debug] 接口流量数据: traffic={total_traffic}, used={used_traffic}, u={u_traffic}, d={d_traffic}")
 
         # 尝试计算真实剩余流量
         # 1. 如果接口有直白的 remain 字段
@@ -103,7 +104,7 @@ def run_checkin_for_token(token_name, wjkc_token):
         # 3. 如果使用经典的 u (上传) 和 d (下载) 字段
         elif (u_traffic > 0 or d_traffic > 0):
             remaining_bytes = total_traffic - (u_traffic + d_traffic)
-        # 4. 兜底策略
+        # 4. 兜底策略 (临时使用总流量，等拿到 Debug 数据后替换为最终公式)
         else:
             remaining_bytes = total_traffic
             
