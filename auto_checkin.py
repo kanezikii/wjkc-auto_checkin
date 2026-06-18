@@ -8,10 +8,10 @@ from get_token import get_wjkc_token
 from update_github_secret import update_github_repo_secret
 
 # --- API Endpoints ---
-CHECKIN_URL = "https://wjkc.lol/api/user/sign_use"
-USER_INFO_URL = "https://wjkc.lol/api/user/userinfo"
+CHECKIN_URL = "https://wj-kc.com/api/user/sign_use"
+USER_INFO_URL = "https://wj-kc.com/api/user/userinfo"
 
-# --- Smart Token Management ---
+# --- Smart Token Management ---`
 def check_token_needs_update():
     """检查token是否需要更新（15天周期）"""
     last_update = os.getenv('TOKEN_LAST_UPDATE')
