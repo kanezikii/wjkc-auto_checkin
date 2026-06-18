@@ -3,6 +3,7 @@ import os
 import requests
 import json
 import base64
+import uuid  # 新增：用于生成随机的 GitHub Actions EOF 界定符
 from datetime import datetime, timedelta
 from get_token import get_wjkc_token
 from update_github_secret import update_github_repo_secret
@@ -11,7 +12,7 @@ from update_github_secret import update_github_repo_secret
 CHECKIN_URL = "https://wj-kc.com/api/user/sign_use"
 USER_INFO_URL = "https://wj-kc.com/api/user/userinfo"
 
-# --- Smart Token Management ---`
+# --- Smart Token Management ---
 def check_token_needs_update():
     """检查token是否需要更新（15天周期）"""
     last_update = os.getenv('TOKEN_LAST_UPDATE')
@@ -41,12 +42,16 @@ def should_send_notification():
     return True
 
 def set_github_output(name, value):
-    """设置GitHub Actions输出变量"""
+    """设置GitHub Actions输出变量 (支持多行文本)"""
     github_output = os.getenv('GITHUB_OUTPUT')
     if github_output:
         with open(github_output, 'a', encoding='utf-8') as f:
-            f.write(f"{name}={value}\n")
-    print(f"设置输出变量: {name}={value}")
+            # 使用随机字符串作为 EOF 界定符，完美解决多行输出报错问题
+            delimiter = str(uuid.uuid4())
+            f.write(f"{name}<<{delimiter}\n")
+            f.write(f"{value}\n")
+            f.write(f"{delimiter}\n")
+    print(f"设置输出变量成功: {name}")
 
 # --- 主函数 (处理单个Token) ---
 def run_checkin_for_token(token_name, wjkc_token):
