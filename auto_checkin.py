@@ -57,7 +57,7 @@ def set_github_output(name, value):
 def run_checkin_for_token(token_name, wjkc_token):
     print(f"--- 正在处理账户: {token_name} ---")
     session = requests.Session()
-    session.cookies.update({"token": wjkc_token.strip()}) # 使用 .strip() 清除可能存在的空格
+    session.cookies.update({"token": wjkc_token.strip()})
     session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'})
     
     try:
@@ -81,8 +81,37 @@ def run_checkin_for_token(token_name, wjkc_token):
         userinfo_result = json.loads(base64.b64decode(userinfo_response.json().get('data')))
         if userinfo_result.get('msg') != 'SUCCESS': raise ValueError("Token无效或已过期，无法查询信息。")
 
-        email = userinfo_result.get('data', {}).get('email', token_name)
-        traffic_gb = userinfo_result.get('data', {}).get('traffic', 0) / (1024*1024*1024)
+        user_data = userinfo_result.get('data', {})
+        email = user_data.get('email', token_name)
+
+        # === 流量计算修正逻辑 ===
+        # 提取关键流量数据打印到日志中，方便 Debug
+        total_traffic = user_data.get('traffic', 0)
+        used_traffic = user_data.get('used', 0) # 有些面板已用流量叫 used
+        u_traffic = user_data.get('u', 0)       # 有些面板用 u 代表上传
+        d_traffic = user_data.get('d', 0)       # d 代表下载
+        
+        print(f"  > [Debug] 接口流量数据: traffic={total_traffic}, used={used_traffic}, u={u_traffic}, d={d_traffic}")
+
+        # 尝试计算真实剩余流量
+        # 1. 如果接口有直白的 remain 字段
+        if 'remain' in user_data:
+            remaining_bytes = user_data['remain']
+        # 2. 如果有明确的 used 字段
+        elif used_traffic > 0:
+            remaining_bytes = total_traffic - used_traffic
+        # 3. 如果使用经典的 u (上传) 和 d (下载) 字段
+        elif (u_traffic > 0 or d_traffic > 0):
+            remaining_bytes = total_traffic - (u_traffic + d_traffic)
+        # 4. 兜底策略
+        else:
+            remaining_bytes = total_traffic
+            
+        # 防止计算出现负数异常
+        if remaining_bytes < 0:
+            remaining_bytes = 0
+
+        traffic_gb = remaining_bytes / (1024*1024*1024)
 
         # 返回格式化的结果，包含更多信息
         return {
