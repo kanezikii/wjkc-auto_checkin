@@ -8,6 +8,10 @@ on:
 jobs:
   checkin:
     runs-on: ubuntu-latest
+    # 👇 修复点 1：在这里新增 env 块，将需要的 secrets 映射为环境变量
+    env:
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
     outputs:
       notification_result: ${{ steps.checkin.outputs.result }}
       should_notify: ${{ steps.checkin.outputs.should_notify }}
@@ -38,9 +42,11 @@ jobs:
       run: python auto_checkin.py
 
     - name: Send Telegram Notification
-      if: steps.checkin.outputs.should_notify == 'true' && secrets.TELEGRAM_TOKEN != '' && secrets.TELEGRAM_TO != ''
+      # 👇 修复点 2：将 if 语句中的 secrets 替换为 env
+      if: steps.checkin.outputs.should_notify == 'true' && env.TELEGRAM_TOKEN != '' && env.TELEGRAM_TO != ''
       uses: appleboy/telegram-action@master
       with:
+        # 注意：这里的 with 块中仍然可以且必须使用 secrets 上下文
         to: ${{ secrets.TELEGRAM_TO }}
         token: ${{ secrets.TELEGRAM_TOKEN }}
         format: markdown
