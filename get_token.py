@@ -7,7 +7,7 @@ import hashlib
 def get_wjkc_token(account_name, username, password):
     print(f"--- 正在尝试登录账户: {account_name} ---")
     
-    LOGIN_URL = "https://wjkc.lol/api/user/login"
+    LOGIN_URL = "https://wjkc.com/api/user/login"
     
     # 对密码进行 MD5 哈希
     md5_password = hashlib.md5(password.encode('utf-8')).hexdigest()
@@ -26,8 +26,8 @@ def get_wjkc_token(account_name, username, password):
         "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
         "Connection": "keep-alive",
         "Content-Type": "application/json",
-        "Origin": "https://wjkc.lol",
-        "Referer": "https://wjkc.lol/",
+        "Origin": "https://wjkc.com",
+        "Referer": "https://wjkc.com/",
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-origin",
