@@ -38,7 +38,7 @@ jobs:
       run: python auto_checkin.py
 
     - name: Send Telegram Notification
-      if: ${{ steps.checkin.outputs.should_notify == 'true' && secrets.TELEGRAM_TOKEN && secrets.TELEGRAM_TO }}
+      if: steps.checkin.outputs.should_notify == 'true' && secrets.TELEGRAM_TOKEN != '' && secrets.TELEGRAM_TO != ''
       uses: appleboy/telegram-action@master
       with:
         to: ${{ secrets.TELEGRAM_TO }}
