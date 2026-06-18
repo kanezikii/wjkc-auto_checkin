@@ -47,13 +47,8 @@ jobs:
         to: ${{ secrets.TELEGRAM_TO }}
         token: ${{ secrets.TELEGRAM_TOKEN }}
         format: markdown
+        disable_web_page_preview: true # 禁用链接预览，防止出现巨大的卡片
         message: |
-          🔔 *WJKC.LOL 自动签到报告*
+          🔔 *网际快车签到报告*
           
           ${{ steps.checkin.outputs.result }}
-          
-          📅 执行时间: ${{ steps.checkin.outputs.execution_time }}
-          🔗 [查看任务详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          
-          ---
-          _自动签到系统 v2.0_
